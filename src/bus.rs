@@ -3,6 +3,9 @@ use crate::{dram::{DRAM_SIZE, Dram}, exception::Exception};
 pub const DRAM_START: u64 = 0x8000000;
 pub const DRAM_END: u64 = DRAM_START + DRAM_SIZE;
 
+pub const DTB_START: u64 = 0x8000000;
+pub const DTB_END: u64 = DTB_START + 0xf000;
+
 pub struct Bus {
     dram: Dram
 }
