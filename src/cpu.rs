@@ -1,4 +1,4 @@
-use crate::{bus::{Bus, DRAM_END}, exception::Exception};
+use crate::{bus::{Bus, DRAM_END, DTB_START}, exception::Exception};
 
 struct Xregs {
     xregs: [u64;32]
@@ -55,6 +55,7 @@ impl Cpu {
     pub fn new() -> Self {
         let mut xregs = Xregs::new();
         xregs.write(2, DRAM_END);
+        xregs.write(11, DTB_START);
 
         Self {
             bus: Bus::new(),
@@ -89,7 +90,6 @@ impl Cpu {
             },
             0b11 => {
                 let inst = self.fetch(32)?;
-                println!("inst: {inst:08x}");
                 self.execute_uncompressed(inst)?;
                 self.pc += 4;
             }
@@ -100,20 +100,22 @@ impl Cpu {
     }
 
     fn execute_compressed(&mut self, _inst: u64) -> Result<(), Exception> {
-        Err(Exception::Misc)
+        todo!("compressed instruction")
     }
 
     fn execute_uncompressed(&mut self, inst: u64) -> Result<(), Exception> {
         self.xregs.write(0, 0);
-
+        
         let opcode = inst & 0b1111111;
         let funct3 = (inst >> 12) & 0b111;
         let funct7 = inst >> 25;
-
+        
         let rd  = (inst >> 7)  & 0b11111;
         let rs1 = (inst >> 15) & 0b11111;
         let rs2 = (inst >> 20) & 0b11111;
 
+        println!("pc: {:016X} inst: {:08X}", self.pc, inst);
+        
         match opcode {
             0b0110011 => { // OP
                 println!("OP");
