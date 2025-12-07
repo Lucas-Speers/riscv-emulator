@@ -1,4 +1,4 @@
-use crate::{bus::{DRAM_START, DTB_START}, cpu::Cpu};
+use crate::{bus::DRAM_START, cpu::Cpu};
 
 mod dram;
 mod exception;
