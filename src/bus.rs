@@ -25,7 +25,7 @@ impl Bus {
         match addr {
             DTB_START..DTB_END => self.dtb.read(addr-DTB_START, size),
             DRAM_START..DRAM_END => self.dram.read(addr-DRAM_START, size),
-            _ => Err(Exception::MemoryOOB)
+            _ => Err(Exception::StoreAccessFault)
         }
     }
 
@@ -33,7 +33,7 @@ impl Bus {
         match addr {
             DTB_START..DTB_END => self.dram.write(addr-DTB_START, value, size),
             DRAM_START..DRAM_END => self.dram.write(addr-DRAM_START, value, size),
-            _ => Err(Exception::MemoryOOB)
+            _ => Err(Exception::StoreAccessFault)
         }
     }
 }

@@ -19,7 +19,7 @@ impl Rom {
             16 => Ok(self.read16(addr)),
             32 => Ok(self.read32(addr)),
             64 => Ok(self.read64(addr)),
-            _ => Err(Exception::EmulatorBug)
+            _ => Err(Exception::HardwareError)
         }
     }
 

@@ -21,7 +21,7 @@ impl Dram {
             16 => Ok(self.read16(addr)),
             32 => Ok(self.read32(addr)),
             64 => Ok(self.read64(addr)),
-            _ => Err(Exception::EmulatorBug)
+            _ => Err(Exception::HardwareError)
         }
     }
 
@@ -31,7 +31,7 @@ impl Dram {
             16 => self.write16(addr, value),
             32 => self.write32(addr, value),
             64 => self.write64(addr, value),
-            _ => return Err(Exception::EmulatorBug)
+            _ => return Err(Exception::HardwareError)
         }
 
         Ok(())
