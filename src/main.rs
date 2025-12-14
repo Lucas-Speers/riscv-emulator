@@ -5,12 +5,14 @@ mod exception;
 mod bus;
 mod cpu;
 mod rom;
+mod uart;
+mod clint;
 
 fn main() {
     let mut cpu = Cpu::new();
 
     cpu.bus.dram.load(include_bytes!("../bbl.bin"));
-    cpu.bus.dtb.load(include_bytes!("../sixtyfourmb.dtb"));
+    cpu.bus.dtb.load(include_bytes!("../emulator.dtb"));
     cpu.set_pc(DRAM_START);
 
     loop {

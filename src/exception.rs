@@ -7,6 +7,9 @@ pub enum Exception {
     LoadAccessFault,
     StoreAddressMisaligned,
     StoreAccessFault,
+    ECallFromU,
+    ECallFromS,
+    ECallFromM,
     HardwareError,
 }
 
@@ -19,8 +22,11 @@ impl Exception {
             Exception::LoadAccessFault => 5,
             Exception::StoreAddressMisaligned => 6,
             Exception::StoreAccessFault => 7,
+            Exception::ECallFromU => 8,
+            Exception::ECallFromS => 9,
+            Exception::ECallFromM => 11,
 
-            Exception::HardwareError => 13,
+            Exception::HardwareError => 19,
         }
     }
 }

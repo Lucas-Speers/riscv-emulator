@@ -9,14 +9,58 @@ impl Xregs {
         Self { xregs: [0;32] }
     }
 
+    fn get_abi(index: u64) -> &'static str {
+        match index {
+            0 => "zero",
+            1 => "ra",
+            2 => "sp",
+            3 => "gp",
+            4 => "tp",
+            5 => "t0",
+            6 => "t1",
+            7 => "t2",
+            8 => "s0/fp",
+            9 => "s1",
+            10 => "a0",
+            11 => "a1",
+            12 => "a2",
+            13 => "a3",
+            14 => "a4",
+            15 => "a5",
+            16 => "a6",
+            17 => "a7",
+            18 => "s2",
+            19 => "s3",
+            20 => "s4",
+            21 => "s5",
+            22 => "s6",
+            23 => "s7",
+            24 => "s8",
+            25 => "s9",
+            26 => "s10",
+            27 => "s11",
+            28 => "t3",
+            29 => "t4",
+            30 => "t5",
+            31 => "t6",
+            _ => "ERROR"
+        }
+    }
+
     fn read(&self, index: u64) -> u64 {
-        if index != 0 {println!("x{index} -> {:X}", self.xregs[index as usize])}
+        // if index != 0 {println!("{} contains {:X}", Self::get_abi(index), self.xregs[index as usize])}
         self.xregs[index as usize]
     }
 
     fn write(&mut self, index: u64, value: u64) {
-        if index != 0 {println!("{value:X} -> x{index}")}
+        // if index != 0 {println!("{value:X} -> {}", Self::get_abi(index))}
         self.xregs[index as usize] = value;
+    }
+
+    fn print_all(&self) {
+        for index in 0..32 {
+            println!("{}=0x{:X}", Self::get_abi(index), self.xregs[index as usize]);
+        }
     }
 }
 
@@ -38,15 +82,54 @@ impl Csrs {
         Self { csrs: [0;4096] }
     }
 
+    fn get_name(index: u64) -> String {
+        match index {
+            0xf11 => "mvendorid",
+            0xf12 => "marchid",
+            0xf13 => "mimpid",
+            0xf14 => "mhartid",
+            0xf15 => "mconfigptr",
+
+            0x300 => "mstatus",
+            0x301 => "misa",
+            0x302 => "medeleg",
+            0x303 => "mideleg",
+            0x304 => "mie",
+            0x305 => "mtvec",
+            0x306 => "mcounteren",
+            0x310 => "mstatush",
+            0x312 => "medelegh",
+
+            0x340 => "mscratch",
+            0x341 => "mepc",
+            0x342 => "mcause",
+            0x343 => "mtval",
+            0x344 => "mip",
+            0x34a => "mtinst",
+            0x34b => "mtval2",
+
+            0x3a0..=0x3af => return format!("pmpcfg{}", index-0x3a0),
+            0x3b0..=0x3ef => return format!("pmpaddr{}", index-0x3b0),
+
+            _ => return format!("UNKNOWN CSR {index:X}")
+        }.to_string()
+    }
+
     fn read(&self, index: u64) -> u64 {
-        if index != 0 {println!("csr {index:X} -> {:X}", self.csrs[index as usize])}
+        println!("CSR READ:  {} {:b}", Self::get_name(index), self.csrs[index as usize]);
         self.csrs[index as usize]
     }
 
     fn write(&mut self, index: u64, value: u64) {
-        if index != 0 {println!("{value:X} -> csr {index:X}")}
+        println!("CSR WRITE: {} {value:b}", Self::get_name(index));
         self.csrs[index as usize] = value;
     }
+}
+
+enum Mode {
+    User,
+    Supervisor,
+    Machine,
 }
 
 pub struct Cpu {
@@ -54,6 +137,7 @@ pub struct Cpu {
     xregs: Xregs,
     pc: u64,
     csrs: Csrs,
+    mode: Mode,
 }
 
 impl Cpu {
@@ -70,11 +154,12 @@ impl Cpu {
             xregs,
             pc: 0,
             csrs,
+            mode: Mode::Machine
         }
     }
 
     pub fn set_pc(&mut self, pc: u64) {
-        if pc != self.pc + 4 {println!("{:X} -> pc", pc)}
+        // if pc != self.pc + 4 {println!("{:X} -> pc", pc)}
         self.pc = pc;
     }
 
@@ -101,14 +186,14 @@ impl Cpu {
     }
 
     pub fn handle_trap(&mut self, exception: Exception) {
-        println!("\n--- TRAP --- {exception:?}\n");
+        // println!("--- TRAP --- {exception:?}");
         self.csrs.write(csr::MCAUSE, exception.to_code());
         self.csrs.write(csr::MTVAL, 0);
-        self.csrs.write(csr::MEPC, self.pc);
+        self.csrs.write(csr::MEPC, self.pc - 4);
 
         self.set_pc(self.csrs.read(csr::MTVEC));
 
-        pause();
+        // pause();
     }
 
     fn execute_compressed(&mut self, _inst: u64) -> Result<(), Exception> {
@@ -126,11 +211,42 @@ impl Cpu {
         let rs1 = (inst >> 15) & 0b11111;
         let rs2 = (inst >> 20) & 0b11111;
 
-        println!("\npc: {:X} inst: {:08X}", self.pc, inst);
+        // println!("\npc: {:X} inst: {:08X}", self.pc, inst);
+
+        // simple debuging
+        // if inst == 0x00000013 {
+        //     println!("NOP encountered");
+        //     self.xregs.print_all();
+        //     pause();
+        // }
+
+        match inst {
+            0x30200073 => { // MRET
+                self.set_pc(self.csrs.read(csr::MEPC));
+                self.mode = Mode::Supervisor; // TODO
+                // self.xregs.print_all();
+                return Ok(());
+            }
+            0x00000073 => { // ECALL
+                match self.mode {
+                    Mode::User => {
+                        // self.csrs.write(csr::MEPC, self.pc);
+                        return Err(Exception::ECallFromU);
+                    },
+                    Mode::Supervisor => {
+                        return Err(Exception::ECallFromS);
+                    },
+                    Mode::Machine => {
+                        // self.csrs.write(csr::MEPC, self.pc);
+                        return Err(Exception::ECallFromM);
+                    },
+                }
+            }
+            _ => {}
+        }
         
         match opcode {
             0b0110011 => { // OP
-                println!("OP");
                 self.xregs.write(rd, match (funct3, funct7) {
                     (0b000, 0) => { // ADD
                         self.xregs.read(rs1).wrapping_add(self.xregs.read(rs2))
@@ -190,7 +306,6 @@ impl Cpu {
                 });
             }
             0b0111011 => { // OP-32
-                println!("OP-32");
                 self.xregs.write(rd, match (funct3, funct7) {
                     (0b000, 0) => { // ADDW
                         (self.xregs.read(rs1) as i32).wrapping_add(self.xregs.read(rs2) as i32) as i64 as u64
@@ -226,7 +341,6 @@ impl Cpu {
                 } as i32 as i64 as u64);
             }
             0b0010011 => { // OP-IMM
-                println!("OP-IMM");
                 let imm = ((inst as i32 as i64) >> 20) as u64;
 
                 self.xregs.write(rd, match (funct3, funct7)  {
@@ -262,7 +376,6 @@ impl Cpu {
                 });
             }
             0b0011011 => { // OP-IMM-32
-                println!("OP-IMM-32");
                 let imm = ((inst as i32 as i64) >> 20) as u64;
 
                 self.xregs.write(rd, match (funct3, funct7)  {
@@ -282,15 +395,12 @@ impl Cpu {
                 } as i32 as i64 as u64);
             }
             0b0110111 => { // LUI
-                println!("LUI");
                 self.xregs.write(rd, (inst & 0xfffff000) as i32 as i64 as u64);
             }
             0b0010111 => { // AUIPC
-                println!("AUIPC");
                 self.xregs.write(rd, self.pc.wrapping_add((inst & 0xfffff000) as i32 as i64 as u64));
             }
             0b1101111 => { // JAL
-                println!("JAL");
                 let imm = (((inst & 0x80000000) as i32 as i64 >> 11) as u64) |
                 (inst & 0xff000) |
                 ((inst >> 9) & 0x800) |
@@ -300,14 +410,12 @@ impl Cpu {
                 self.set_pc(self.pc.wrapping_add(imm).wrapping_sub(4));
             }
             0b1100111 => { // JALR
-                println!("JALR");
                 let imm = ((inst as i32 as i64) >> 20) as u64;
                 
                 self.xregs.write(rd, self.pc.wrapping_add(4));
                 self.set_pc(imm.wrapping_add(self.xregs.read(rs1)).wrapping_sub(4) & !1);
             }
             0b1100011 => { // BRANCH
-                println!("BRANCH");
                 if match funct3 {
                     0b000 => {self.xregs.read(rs1) == self.xregs.read(rs2)}
                     0b001 => {self.xregs.read(rs1) != self.xregs.read(rs2)}
@@ -326,7 +434,6 @@ impl Cpu {
                 }
             }
             0b0000011 => { // LOAD
-                println!("LOAD");
                 let imm = ((inst as i32 as i64) >> 20) as u64;
                 let addr = imm.wrapping_add(self.xregs.read(rs1));
                 self.xregs.write(rd, match funct3 {
@@ -348,7 +455,6 @@ impl Cpu {
                 });
             }
             0b0100011 => { // STORE
-                println!("STORE");
                 let imm = (((inst & 0xfe000000) as i32 as i64 >> 20) as u64) | ((inst >> 7) & 0x1f);
                 let addr = imm.wrapping_add(self.xregs.read(rs1));
                 match funct3 {
@@ -363,47 +469,37 @@ impl Cpu {
                     _ => return Err(Exception::IllegalInstruction("STORE".to_owned()))
                 }
             }
-            0b0001111 => { // MISC-MEM
-                println!("MISC-MEM");
-            }
+            0b0001111 => {} // MISC-MEM
             0b1110011 => { // SYSTEM
-                println!("SYSTEM");
                 let csr = inst >> 20;
 
-                match funct3 {
+                let prev_val = self.csrs.read(csr);
+                let new_val = match funct3 {
                     0b000 => return Err(Exception::IllegalInstruction("PRIV".to_owned())),
                     0b001 => { // CSRRW
-                        let prev_val = self.csrs.read(csr);
-                        self.csrs.write(csr, self.xregs.read(rs1));
-                        self.xregs.write(rd, prev_val);
+                        self.xregs.read(rs1)
                     }
                     0b010 => { // CSRRS
-                        let prev_val = self.csrs.read(csr);
-                        self.csrs.write(csr, prev_val | self.xregs.read(rs1));
-                        self.xregs.write(rd, prev_val);
+                        prev_val | self.xregs.read(rs1)
                     }
                     0b011 => { // CSRRC
-                        let prev_val = self.csrs.read(csr);
-                        self.csrs.write(csr, prev_val & !self.xregs.read(rs1));
-                        self.xregs.write(rd, prev_val);
+                        prev_val & !self.xregs.read(rs1)
                     }
                     0b101 => { // CSRRWI
-                        let prev_val = self.csrs.read(csr);
-                        self.csrs.write(csr, rs1);
-                        self.xregs.write(rd, prev_val);
+                        rs1
                     }
                     0b110 => { // CSRRSI
-                        let prev_val = self.csrs.read(csr);
-                        self.csrs.write(csr, prev_val | rs1);
-                        self.xregs.write(rd, prev_val);
+                        prev_val | rs1
                     }
                     0b111 => { // CSRRCI
-                        let prev_val = self.csrs.read(csr);
-                        self.csrs.write(csr, prev_val & !rs1);
-                        self.xregs.write(rd, prev_val);
+                        prev_val & !rs1
                     }
                     _ => return Err(Exception::IllegalInstruction("SYSTEM".to_owned()))
+                };
+                if new_val != prev_val {
+                    self.csrs.write(csr, new_val);
                 }
+                self.xregs.write(rd, prev_val);
             }
             _ => return Err(Exception::IllegalInstruction("Not implemented".to_owned()))
         }
@@ -419,7 +515,7 @@ fn pause() {
     let mut stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
 
-    write!(stdout, "Press any key to continue...").unwrap();
+    write!(stdout, "Press any key to continue...\n").unwrap();
     stdout.flush().unwrap();
     let _ = stdin.read(&mut [0u8]).unwrap();
 }
