@@ -116,12 +116,12 @@ impl Csrs {
     }
 
     fn read(&self, index: u64) -> u64 {
-        println!("CSR READ:  {} {:b}", Self::get_name(index), self.csrs[index as usize]);
+        // println!("CSR READ:  {} {:b}", Self::get_name(index), self.csrs[index as usize]);
         self.csrs[index as usize]
     }
 
     fn write(&mut self, index: u64, value: u64) {
-        println!("CSR WRITE: {} {value:b}", Self::get_name(index));
+        // println!("CSR WRITE: {} {value:b}", Self::get_name(index));
         self.csrs[index as usize] = value;
     }
 }
@@ -138,6 +138,7 @@ pub struct Cpu {
     pc: u64,
     csrs: Csrs,
     mode: Mode,
+    wfi: bool,
 }
 
 impl Cpu {
@@ -154,7 +155,8 @@ impl Cpu {
             xregs,
             pc: 0,
             csrs,
-            mode: Mode::Machine
+            mode: Mode::Machine,
+            wfi: false,
         }
     }
 
@@ -186,10 +188,10 @@ impl Cpu {
     }
 
     pub fn handle_trap(&mut self, exception: Exception) {
-        // println!("--- TRAP --- {exception:?}");
+        println!("--- TRAP --- {exception:?}");
         self.csrs.write(csr::MCAUSE, exception.to_code());
         self.csrs.write(csr::MTVAL, 0);
-        self.csrs.write(csr::MEPC, self.pc - 4);
+        self.csrs.write(csr::MEPC, self.pc);
 
         self.set_pc(self.csrs.read(csr::MTVEC));
 
@@ -214,15 +216,16 @@ impl Cpu {
         // println!("\npc: {:X} inst: {:08X}", self.pc, inst);
 
         // simple debuging
-        // if inst == 0x00000013 {
-        //     println!("NOP encountered");
-        //     self.xregs.print_all();
-        //     pause();
-        // }
+        if inst == 0x00000013 {
+            println!("NOP encountered");
+            self.xregs.print_all();
+            pause();
+        }
 
         match inst {
             0x30200073 => { // MRET
-                self.set_pc(self.csrs.read(csr::MEPC));
+                println!("MRET");
+                self.set_pc(self.csrs.read(csr::MEPC)-4);
                 self.mode = Mode::Supervisor; // TODO
                 // self.xregs.print_all();
                 return Ok(());
@@ -230,14 +233,12 @@ impl Cpu {
             0x00000073 => { // ECALL
                 match self.mode {
                     Mode::User => {
-                        // self.csrs.write(csr::MEPC, self.pc);
                         return Err(Exception::ECallFromU);
                     },
                     Mode::Supervisor => {
                         return Err(Exception::ECallFromS);
                     },
                     Mode::Machine => {
-                        // self.csrs.write(csr::MEPC, self.pc);
                         return Err(Exception::ECallFromM);
                     },
                 }
@@ -471,11 +472,21 @@ impl Cpu {
             }
             0b0001111 => {} // MISC-MEM
             0b1110011 => { // SYSTEM
+                match inst {
+                    0x10500073 => {
+                        self.wfi = true;
+                        panic!("WFI instruction waits for external interupts which are not implemented");
+                    }
+                    _ => ()
+                }
                 let csr = inst >> 20;
 
                 let prev_val = self.csrs.read(csr);
                 let new_val = match funct3 {
-                    0b000 => return Err(Exception::IllegalInstruction("PRIV".to_owned())),
+                    0b000 => {
+                        println!("{inst:X}");
+                        return Err(Exception::IllegalInstruction("PRIV".to_owned()))
+                    },
                     0b001 => { // CSRRW
                         self.xregs.read(rs1)
                     }
@@ -500,6 +511,38 @@ impl Cpu {
                     self.csrs.write(csr, new_val);
                 }
                 self.xregs.write(rd, prev_val);
+            }
+            0b0101111 => { // AMO
+                println!("AMO {inst:X} {} {} {}", Xregs::get_abi(rd), Xregs::get_abi(rs1), Xregs::get_abi(rs2));
+                let value = match funct3 {
+                    0b010 => self.bus.read(rs1, 32)? as i32 as i64,
+                    0b011 => self.bus.read(rs1, 64)? as i64,
+                    _ => return Err(Exception::IllegalInstruction("AMO WRONG SIZE".to_string()))
+                };
+
+                self.xregs.write(rd, value as u64);
+
+                let rs2 = rs2 as i64;
+                let new_value = match funct7 >> 2 {
+                    0b00010 => panic!(),
+                    0b00011 => panic!(),
+                    0b00001 => rs2, // could be wrong
+                    0b00000 => value.wrapping_add(rs2),
+                    0b00100 => value ^ rs2,
+                    0b01100 => value & rs2,
+                    0b01000 => value | rs2,
+                    0b10000 => value.min(rs2),
+                    0b10100 => value.max(rs2),
+                    0b11000 => (value as u64).min(rs2 as u64) as i64,
+                    0b11100 => (value as u64).max(rs2 as u64) as i64,
+                    _ => return Err(Exception::IllegalInstruction("AMO".to_string()))
+                } as u64;
+
+                match funct3 {
+                    0b010 => self.bus.write(rs1, new_value, 32)?,
+                    0b011 => self.bus.write(rs1, new_value, 64)?,
+                    _ => unreachable!()
+                };
             }
             _ => return Err(Exception::IllegalInstruction("Not implemented".to_owned()))
         }
