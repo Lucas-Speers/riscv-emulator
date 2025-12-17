@@ -139,6 +139,7 @@ pub struct Cpu {
     csrs: Csrs,
     mode: Mode,
     wfi: bool,
+    debugging: bool,
 }
 
 impl Cpu {
@@ -157,6 +158,7 @@ impl Cpu {
             csrs,
             mode: Mode::Machine,
             wfi: false,
+            debugging: false,
         }
     }
 
@@ -213,7 +215,16 @@ impl Cpu {
         let rs1 = (inst >> 15) & 0b11111;
         let rs2 = (inst >> 20) & 0b11111;
 
-        // println!("\npc: {:X} inst: {:08X}", self.pc, inst);
+        // if [].contains(&self.pc) {
+        //     println!("Breakpoint @ {:X}", self.pc);
+        //     self.debugging = true;
+        // }
+
+        // if self.debugging {
+        //     println!("\npc: {:X} inst: {:08X}", self.pc, inst);
+        //     self.xregs.print_all();
+        //     pause();
+        // }
 
         // simple debuging
         if inst == 0x00000013 {
@@ -513,34 +524,34 @@ impl Cpu {
                 self.xregs.write(rd, prev_val);
             }
             0b0101111 => { // AMO
-                println!("AMO {inst:X} {} {} {}", Xregs::get_abi(rd), Xregs::get_abi(rs1), Xregs::get_abi(rs2));
+                let addr = self.xregs.read(rs1);
                 let value = match funct3 {
-                    0b010 => self.bus.read(rs1, 32)? as i32 as i64,
-                    0b011 => self.bus.read(rs1, 64)? as i64,
+                    0b010 => self.bus.read(addr, 32)? as i32 as i64,
+                    0b011 => self.bus.read(addr, 64)? as i64,
                     _ => return Err(Exception::IllegalInstruction("AMO WRONG SIZE".to_string()))
                 };
 
                 self.xregs.write(rd, value as u64);
 
-                let rs2 = rs2 as i64;
+                let other_val = self.xregs.read(rs2) as i64;
                 let new_value = match funct7 >> 2 {
                     0b00010 => panic!(),
                     0b00011 => panic!(),
-                    0b00001 => rs2, // could be wrong
-                    0b00000 => value.wrapping_add(rs2),
-                    0b00100 => value ^ rs2,
-                    0b01100 => value & rs2,
-                    0b01000 => value | rs2,
-                    0b10000 => value.min(rs2),
-                    0b10100 => value.max(rs2),
-                    0b11000 => (value as u64).min(rs2 as u64) as i64,
-                    0b11100 => (value as u64).max(rs2 as u64) as i64,
+                    0b00001 => other_val, // could be wrong
+                    0b00000 => value.wrapping_add(other_val),
+                    0b00100 => value ^ other_val,
+                    0b01100 => value & other_val,
+                    0b01000 => value | other_val,
+                    0b10000 => value.min(other_val),
+                    0b10100 => value.max(other_val),
+                    0b11000 => (value as u64).min(other_val as u64) as i64,
+                    0b11100 => (value as u64).max(other_val as u64) as i64,
                     _ => return Err(Exception::IllegalInstruction("AMO".to_string()))
                 } as u64;
 
                 match funct3 {
-                    0b010 => self.bus.write(rs1, new_value, 32)?,
-                    0b011 => self.bus.write(rs1, new_value, 64)?,
+                    0b010 => self.bus.write(addr, new_value, 32)?,
+                    0b011 => self.bus.write(addr, new_value, 64)?,
                     _ => unreachable!()
                 };
             }
